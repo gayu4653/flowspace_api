@@ -199,3 +199,22 @@ export const deleteMeeting = async (req: Request, res: Response): Promise<void> 
     res.status(200).json({ success: true, message: 'Meeting deleted' });
   } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
 };
+
+// ── Auto-sync: close past meetings ────────────────────────────────────────────
+// Called when meeting page opens. Marks any upcoming meeting whose date < today as done.
+export const syncMeetingStatuses = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const wsId = (req.body.workspace_id ?? req.query.workspace_id) as string | undefined;
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+    const filter: any = {
+      status: 'upcoming',
+      date:   { $lt: todayStart },
+      $or: [{ created_by: req.user!._id }, { attendees: req.user!._id }, { assigners: req.user!._id }],
+    };
+    if (wsId) filter.workspace_id = wsId;
+
+    const result = await Meeting.updateMany(filter, { $set: { status: 'done' } });
+    res.status(200).json({ success: true, updated: result.modifiedCount });
+  } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+};
