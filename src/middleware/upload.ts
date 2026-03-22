@@ -1,16 +1,21 @@
 import multer, { FileFilterCallback } from 'multer';
-import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import { Request } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, process.env.UPLOAD_DIR ?? 'uploads');
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${uuidv4()}${ext}`);
-  },
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: async (_req: any, file: any) => ({
+    folder: 'flowspace',
+    resource_type: 'auto',
+    public_id: `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`,
+  }),
 });
 
 const ALLOWED_TYPES = new Set([
@@ -23,18 +28,15 @@ const ALLOWED_TYPES = new Set([
   'text/plain', 'text/csv',
 ]);
 
-const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-  if (ALLOWED_TYPES.has(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error(`File type ${file.mimetype} not allowed`));
-  }
-};
-
 const upload = multer({
   storage,
-  fileFilter,
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+    ALLOWED_TYPES.has(file.mimetype)
+      ? cb(null, true)
+      : cb(new Error(`File type ${file.mimetype} not allowed`));
+  },
   limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE ?? '52428800') },
 });
 
+export { cloudinary };
 export default upload;

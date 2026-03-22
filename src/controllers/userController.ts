@@ -5,6 +5,7 @@ import fs     from 'fs';
 import https  from 'https';
 import User   from '../models/User';
 import { generateToken, generateTempToken, decodeGoogleCredential } from '../utils/auth';
+import { cloudinary } from '../middleware/upload';
 
 const DEFAULT_INVITE_PASSWORD = process.env.DEFAULT_USER_PASSWORD ?? '123456';
 const DEFAULT_OTP             = process.env.DEFAULT_OTP           ?? '123456';
@@ -30,36 +31,16 @@ const buildAuthResponse = (user: any) => ({
 // Returns the local relative path e.g. /uploads/google_<userId>.jpg
 // or null if download fails.
 const downloadGoogleAvatar = async (imageUrl: string, userId: string): Promise<string | null> => {
-  return new Promise((resolve) => {
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-    // Use .jpg extension — Google avatars are always JPEGs
-    const filename = `google_${userId}_${Date.now()}.jpg`;
-    const filePath = path.join(uploadsDir, filename);
-    const fileStream = fs.createWriteStream(filePath);
-
-    const request = https.get(imageUrl, (response) => {
-      // Follow redirect once (Google sometimes returns 302)
-      if (response.statusCode === 302 && response.headers.location) {
-        fileStream.close();
-        fs.unlinkSync(filePath);
-        https.get(response.headers.location, (r2) => {
-          const fs2 = fs.createWriteStream(filePath);
-          r2.pipe(fs2);
-          fs2.on('finish', () => { fs2.close(); resolve(`/uploads/${filename}`); });
-          fs2.on('error', () => { fs.unlink(filePath, () => {}); resolve(null); });
-        }).on('error', () => resolve(null));
-        return;
-      }
-      if (response.statusCode !== 200) { fileStream.close(); fs.unlink(filePath, () => {}); resolve(null); return; }
-      response.pipe(fileStream);
-      fileStream.on('finish', () => { fileStream.close(); resolve(`/uploads/${filename}`); });
-      fileStream.on('error', () => { fs.unlink(filePath, () => {}); resolve(null); });
+  try {
+    const result = await cloudinary.uploader.upload(imageUrl, {
+      folder: 'flowspace/avatars',
+      public_id: `google_${userId}`,
+      overwrite: true,
     });
-    request.on('error', () => { fs.unlink(filePath, () => {}); resolve(null); });
-    request.setTimeout(8000, () => { request.destroy(); fs.unlink(filePath, () => {}); resolve(null); });
-  });
+    return result.secure_url;
+  } catch {
+    return null;
+  }
 };
 
 // ── Auth controllers ──────────────────────────────────────────────────────────
@@ -246,14 +227,29 @@ export const updatePassword = async (req: Request, res: Response): Promise<void>
 
 export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!req.file) { res.status(400).json({ success: false, message: 'No file uploaded' }); return; }
-    const oldUser = await User.findById(req.user!._id);
-    if (oldUser?.profile_photo?.startsWith('/uploads/')) {
-      const oldPath = path.join(process.cwd(), oldUser.profile_photo);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    if (!req.file) {
+      res.status(400).json({ success: false, message: 'No file uploaded' });
+      return;
     }
-    const fileUrl = `/uploads/${req.file.filename}`;
-    const user    = await User.findByIdAndUpdate(req.user!._id, { profile_photo: fileUrl }, { new: true }).select('-password');
+
+    // Delete old Cloudinary avatar if it exists
+    const oldUser = await User.findById(req.user!._id);
+    if (oldUser?.profile_photo?.includes('cloudinary.com')) {
+      // Extract public_id from URL
+      const parts = oldUser.profile_photo.split('/');
+      const publicId = parts.slice(-2).join('/').replace(/\.[^/.]+$/, '');
+      await cloudinary.uploader.destroy(publicId).catch(() => {});
+    }
+
+    const fileUrl = (req.file as any).path; // Cloudinary URL
+    const user = await User.findByIdAndUpdate(
+      req.user!._id,
+      { profile_photo: fileUrl },
+      { new: true }
+    ).select('-password');
+
     res.status(200).json({ success: true, data: user, url: fileUrl });
-  } catch (err: any) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };
