@@ -123,12 +123,14 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// ── Start server ──────────────────────────────────────────────────────────────
-const PORT = parseInt(process.env.PORT ?? '5000', 10);
-app.listen(PORT, () => {
-  console.log(`🚀 FlowSpace API running on http://localhost:${PORT}`);
-  console.log(`📁 Uploads served at  http://localhost:${PORT}/uploads`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV ?? 'development'}`);
-});
+// ── Start server (only when run directly, not on Vercel) ─────────────────────
+if (process.env.VERCEL !== '1') {
+  const PORT = parseInt(process.env.PORT ?? '5000', 10);
+  app.listen(PORT, () => {
+    console.log(`🚀 FlowSpace API running on http://localhost:${PORT}`);
+    console.log(`📁 Uploads served at  http://localhost:${PORT}/uploads`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV ?? 'development'}`);
+  });
+}
 
 export default app;
