@@ -473,7 +473,9 @@ export const addAttachment = async (req: Request, res: Response): Promise<void> 
     const card = await Card.findById(req.params.id);
     if (!card) { res.status(404).json({ success: false, message: 'Card not found' }); return; }
 
-    const fileUrl  = `/uploads/${req.file.filename}`;
+    // Use the Cloudinary URL returned by multer-storage-cloudinary
+    const fileUrl  = (req.file as any).path;      // Cloudinary secure_url
+    const publicId = (req.file as any).filename;  // Cloudinary public_id
     const fileType = detectType(req.file.mimetype, req.file.originalname);
     const fileSize = formatSize(req.file.size);
 
@@ -483,7 +485,7 @@ export const addAttachment = async (req: Request, res: Response): Promise<void> 
     const doc = await DocumentModel.create({
       name:         (req.body.name as string) ?? req.file.originalname,
       file_url:     fileUrl,
-      filename:     req.file.filename,
+      filename:     publicId,
       file_type:    fileType,
       file_size:    fileSize,
       uploaded_by:  req.user!._id,
@@ -494,7 +496,7 @@ export const addAttachment = async (req: Request, res: Response): Promise<void> 
     card.attachments.push({
       document_id: doc._id as Types.ObjectId,
       file_url:    fileUrl,
-      filename:    req.file.filename,
+      filename:    publicId,
       file_type:   fileType,
       file_size:   fileSize,
       name:        doc.name,
